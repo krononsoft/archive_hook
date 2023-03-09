@@ -23,6 +23,8 @@ module ArchiveHook
 
     Dir.mkdir(path_to_folder) unless File.exists?(path_to_folder)
 
+    Dir.each_child(path_to_folder) { |file| puts File.delete(path_to_folder + file) }
+
     File.open(path_to_folder + filename, "w:utf-8") do |file|
       ignore_tables = ActiveRecord::Base.connection.tables - [table_name]
       ActiveRecord::SchemaDumper.ignore_tables = ignore_tables

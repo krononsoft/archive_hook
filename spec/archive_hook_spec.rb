@@ -4,6 +4,6 @@ RSpec.describe ArchiveHook do
   end
 
   it "dummy tests" do
-    ArchiveHook.create_migration "post"
+    ArchiveHook.create_migration "user"
   end
 end

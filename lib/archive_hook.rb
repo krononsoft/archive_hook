@@ -8,12 +8,23 @@ module ArchiveHook
   @connection ||= DbRunner.connect_to_database("custom_gem_development") #(dbname, user, password)
 
   def self.create_migration(model_name)
-    create_schema_dumper(model_name + "s")
+    # create_schema_dumper(model_name + "s")
+    create_archive_table model_name + "s"
   end
 
   private
 
   def self.create_archive_table(table_name)
+    @connection.tables.each do |table|
+      clone_table(table, table_name) if table === table_name
+    end
+  end
+
+  def self.clone_table(table_orig, table_arch)
+    archive_table_name = "archive_#{table_arch}"
+    sql = "CREATE TABLE #{archive_table_name} AS
+      (SELECT * FROM #{table_orig} WHERE 1=2)"
+    @connection.execute(sql)
   end
 
   def self.create_schema_dumper(table_name)

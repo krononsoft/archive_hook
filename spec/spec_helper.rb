@@ -1,5 +1,6 @@
 require "bundler/setup"
 require "archive_hook"
+require "active_record"
 
 RSpec.configure do |config|
   # Enable flags like --only-failures and --next-failure

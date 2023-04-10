@@ -11,13 +11,21 @@ module ArchiveHook
 
     def call(scope)
       parent = scope.model
+      parent_id_groups = scope.or(expiration_scope(parent)).in_batches.map { |relation| relation.pluck(:id) }
       if @dependencies[parent].present?
-        parent_ids = scope.or(expiration_scope(parent)).pluck(:id)
         @dependencies[parent].each do |child|
-          call(child.where(parent.to_s.foreign_key => parent_ids))
+          if parent_id_groups.present?
+            parent_id_groups.each do |parent_ids|
+              call(child.where(parent.to_s.foreign_key => parent_ids))
+            end
+          else
+            call(child.none)
+          end
         end
       end
-      archive_by_scope(scope.or(expiration_scope(parent)))
+      parent_id_groups.each do |parent_ids|
+        archive_by_scope(parent.where(id: parent_ids))
+      end
     end
 
     private

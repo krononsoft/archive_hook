@@ -17,18 +17,15 @@ module ArchiveHook
         @dependencies[parent].each do |child|
           if parent_id_groups.present?
             parent_id_groups.each do |parent_ids|
-              call(child.where(parent.to_s.foreign_key => parent_ids))
+              call(child.unscoped.where(parent.to_s.foreign_key => parent_ids))
             end
           else
             call(child.none)
           end
         end
-      else
-        return if @processed.include?(parent)
-        @processed << parent
       end
       parent_id_groups.each do |parent_ids|
-        archive_by_scope(parent.where(id: parent_ids))
+        archive_by_scope(parent.unscoped.where(id: parent_ids))
       end
     end
 

@@ -7,6 +7,7 @@ module ArchiveHook
     def initialize(dependencies: {}, archive_date:)
       @dependencies = dependencies
       @archive_date = archive_date
+      @processed = []
     end
 
     def call(scope)
@@ -22,6 +23,9 @@ module ArchiveHook
             call(child.none)
           end
         end
+      else
+        return if @processed.include?(parent)
+        @processed << parent
       end
       parent_id_groups.each do |parent_ids|
         archive_by_scope(parent.where(id: parent_ids))

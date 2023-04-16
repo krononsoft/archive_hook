@@ -46,7 +46,12 @@ module ArchiveHook
     end
 
     def expiration_scope(model)
-      model.where("created_at < ?", @archive_date)
+      if @processed.include?(model)
+        model.none
+      else
+        @processed << model
+        model.where("created_at < ?", @archive_date)
+      end
     end
   end
 

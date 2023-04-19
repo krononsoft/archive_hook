@@ -45,14 +45,13 @@ module ArchiveHook
     end
 
     def scope_archiver
-      @scope_archiver ||= ScopeArchiver.new(dependencies: @dependencies, archive_date: @archive_date)
+      @scope_archiver ||= ScopeArchiver.new(dependencies: @dependencies)
     end
   end
 
   class ScopeArchiver
-    def initialize(dependencies: {}, archive_date:)
+    def initialize(dependencies: {})
       @dependencies = dependencies
-      @archive_date = archive_date
     end
 
     def call(scope)
@@ -77,8 +76,8 @@ module ArchiveHook
       Archiver.new(dependencies: dependencies, archive_date: archive_date).call(root.none)
     end
 
-    def archive_scope(scope, archive_date, dependencies = {})
-      ScopeArchiver.new(dependencies: dependencies, archive_date: archive_date).call(scope)
+    def archive_scope(scope, dependencies = {})
+      ScopeArchiver.new(dependencies: dependencies).call(scope)
     end
   end
 end

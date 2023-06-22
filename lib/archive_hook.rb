@@ -13,8 +13,8 @@ module ArchiveHook
     def call(scope)
       parent = scope.model
       parent_id_groups = scope.or(expiration_scope(parent)).in_batches.map { |relation| relation.pluck(:id) }
-      if @dependencies[parent].present?
-        @dependencies[parent].each do |child|
+      if @dependencies[parent] && @dependencies[parent][:children].present?
+        @dependencies[parent][:children].each do |child|
           if parent_id_groups.present?
             parent_id_groups.each do |parent_ids|
               call(child.unscoped.where(parent.to_s.foreign_key => parent_ids))
@@ -36,12 +36,11 @@ module ArchiveHook
     end
 
     def expiration_scope(model)
-      if @processed.include?(model)
-        model.none
-      else
-        @processed << model
-        model.where("created_at < ?", @archive_date)
-      end
+      return model.none if @processed.include?(model)
+
+      @processed << model
+      column = @dependencies[model] && @dependencies[model][:column] || :created_at
+      model.where("#{column} < ?", @archive_date)
     end
 
     def scope_archiver

@@ -47,6 +47,17 @@ RSpec.describe ArchiveHook do
     SQL
   end
 
+  after(:each) do
+    ActiveRecord::Base.connection.execute <<-SQL
+      delete from tags;
+      delete from tags_archive;
+      delete from cards;
+      delete from cards_archive;
+      delete from boards;
+      delete from boards_archive;
+    SQL
+  end
+
   after(:all) do
     ActiveRecord::Base.connection.disconnect!
     database = 'archive_hook_test'
@@ -54,9 +65,9 @@ RSpec.describe ArchiveHook do
   end
 
   describe ".archive" do
-    subject { described_class.archive(Board, 1.day.ago, { Board => [Card], Card => [Tag] } ) }
+    subject { described_class.archive(Board, 1.day.ago, mapping) }
 
-    let!(:mapping) { { Board => [Card], Card => [Tag] } }
+    let(:mapping) { { Board => { children: [Card] }, Card => { children: [Tag] } } }
     let!(:actual_board) { Board.create(title: "Current issues") }
     let!(:actual_card) { Card.create(title: "Create game", board: actual_board) }
     let!(:actual_tag) { Tag.create(title: "r1", card: actual_card) }
@@ -141,6 +152,36 @@ RSpec.describe ArchiveHook do
                             .and change { Card.from("cards_archive").count }.by(2)
                             .and change { Tag.count }.by(-2)
                             .and change { Tag.from("tags_archive").count }.by(2)
+        end
+      end
+    end
+
+    context "when archive column is not created_at" do
+      let(:mapping) { { Board => { children: [Card], column: :published_at } }  }
+      let!(:outdated_board) { Board.create(title: "Archive board", created_at: 2.days.ago, published_at: Time.current) }
+      let!(:outdated_card) { Card.create(title: "Archive card", created_at: 2.days.ago) }
+
+      before(:all) do
+        ActiveRecord::Base.connection.execute <<-SQL
+          alter table boards add column published_at timestamp;
+          alter table boards_archive add column published_at timestamp;
+        SQL
+        Board.reset_column_information
+      end
+
+      it "doesn't archive" do
+        expect { subject }.to not_change { Board.count }.from(2)
+                          .and change { Card.count }.by(-1)
+      end
+
+      context "and archive date column is suitable" do
+        before(:each) do
+          outdated_board.update_attribute(:published_at, 2.days.ago)
+        end
+
+        it "archives them" do
+          expect { subject }.to change { Board.count }.by(-1)
+                            .and change { Card.count }.by(-1)
         end
       end
     end

@@ -54,11 +54,30 @@ module ArchiveHook
     end
 
     def call(scope)
-      ActiveRecord::Base.connection.execute(Arel.sql(archive_records_sql(scope)))
-      scope.delete_all
+      parent = scope.model
+      parent_id_groups = scope.in_batches.map { |relation| relation.pluck(:id) }
+      if @dependencies[parent] && @dependencies[parent][:children].present?
+        @dependencies[parent][:children].each do |child|
+          if parent_id_groups.present?
+            parent_id_groups.each do |parent_ids|
+              call(child.unscoped.where(parent.to_s.foreign_key => parent_ids))
+            end
+          else
+            call(child.none)
+          end
+        end
+      end
+      parent_id_groups.each do |parent_ids|
+        archive_by_scope(parent.unscoped.where(id: parent_ids))
+      end
     end
 
     private
+
+    def archive_by_scope(scope)
+      ActiveRecord::Base.connection.execute(Arel.sql(archive_records_sql(scope)))
+      scope.delete_all
+    end
 
     def archive_records_sql(scope)
       table_name = scope.table_name

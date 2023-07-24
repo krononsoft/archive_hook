@@ -1,78 +1,52 @@
 require "archive_hook/version"
 
 module ArchiveHook
-  class Error < StandardError; end
-
-  class Archiver
-    def initialize(dependencies: {}, archive_date:)
+  class ExpireExtension
+    def initialize(dependencies:, archive_date:)
+      @processed = []
       @dependencies = dependencies
       @archive_date = archive_date
-      @processed = []
     end
 
-    def call(scope)
-      parent = scope.model
-      parent_id_groups = scope.or(expiration_scope(parent)).in_batches.map { |relation| relation.pluck(:id) }
-      if @dependencies[parent] && @dependencies[parent][:children].present?
-        @dependencies[parent][:children].each do |child|
-          if parent_id_groups.present?
-            parent_id_groups.each do |parent_ids|
-              call(child.unscoped.where(parent.to_s.foreign_key => parent_ids))
-            end
-          else
-            call(child.none)
-          end
-        end
-      end
-      parent_id_groups.each do |parent_ids|
-        archive_by_scope(parent.unscoped.where(id: parent_ids))
-      end
-    end
-
-    private
-
-    def archive_by_scope(scope)
-      scope_archiver.call(scope)
-    end
-
-    def expiration_scope(model)
+    def call(model)
       return model.none if @processed.include?(model)
 
       @processed << model
       column = @dependencies[model] && @dependencies[model][:column] || :created_at
       model.where("#{column} < ?", @archive_date)
     end
-
-    def scope_archiver
-      @scope_archiver ||= ScopeArchiver.new(dependencies: @dependencies)
-    end
   end
 
   class ScopeArchiver
-    def initialize(dependencies: {})
+    def initialize(dependencies: {}, scope_extension:)
       @dependencies = dependencies
+      @scope_extension = scope_extension
     end
 
     def call(scope)
       parent = scope.model
-      parent_id_groups = scope.in_batches.map { |relation| relation.pluck(:id) }
-      if @dependencies[parent] && @dependencies[parent][:children].present?
-        @dependencies[parent][:children].each do |child|
-          if parent_id_groups.present?
-            parent_id_groups.each do |parent_ids|
-              call(child.unscoped.where(parent.to_s.foreign_key => parent_ids))
-            end
-          else
-            call(child.none)
-          end
-        end
-      end
+      parent_id_groups = scope.or(@scope_extension.call(parent)).in_batches.map { |relation| relation.pluck(:id) }
+      archive_children(parent, parent_id_groups)
       parent_id_groups.each do |parent_ids|
         archive_by_scope(parent.unscoped.where(id: parent_ids))
       end
     end
 
     private
+
+    def archive_children(parent, parent_id_groups)
+      return unless @dependencies[parent] && @dependencies[parent][:children].present?
+
+      @dependencies[parent][:children].each do |child|
+        if parent_id_groups.present?
+          parent_id_groups.each do |parent_ids|
+            call(child.unscoped.where(parent.to_s.foreign_key => parent_ids))
+          end
+        else
+          call(child.none)
+        end
+      end
+    end
 
     def archive_by_scope(scope)
       ActiveRecord::Base.connection.execute(Arel.sql(archive_records_sql(scope)))
@@ -91,11 +65,12 @@ module ArchiveHook
 
   class << self
     def archive(root, archive_date, dependencies)
-      Archiver.new(dependencies: dependencies, archive_date: archive_date).call(root.none)
+      scope_extension = ExpireExtension.new(dependencies: dependencies, archive_date: archive_date)
+      ScopeArchiver.new(dependencies: dependencies, scope_extension: scope_extension).call(root.none)
     end
 
     def archive_scope(scope, dependencies = {})
-      ScopeArchiver.new(dependencies: dependencies).call(scope)
+      ScopeArchiver.new(dependencies: dependencies, scope_extension: ->(model) { model.none }).call(scope)
     end
   end
 end

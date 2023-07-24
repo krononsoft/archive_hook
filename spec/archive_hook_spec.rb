@@ -214,4 +214,35 @@ RSpec.describe ArchiveHook do
     end
   end
 
+  describe ".dearchive_scope" do
+    subject { described_class.restore_scope(Board.where(id: ids), mapping) }
+    let!(:outdated_board) { Board.create(title: "Archive board", created_at: 2.days.ago) }
+    let!(:outdated_card) { Card.create(title: "Archive card", created_at: 2.days.ago) }
+    let!(:outdated_tag) { Tag.create(title: "r2", created_at: 2.days.ago) }
+
+    before(:each) do
+      described_class.archive_scope(Board.where(id: actual_board.id), mapping)
+    end
+
+    context "when everything is actual" do
+      let(:ids) { 0 }
+
+      it "doesn't clear" do
+        expect { subject }.to not_change { Board.count }.from(1)
+      end
+    end
+
+    context "when there are items to dearchive" do
+      let(:ids) { actual_board.id }
+
+      it "dearchives them" do
+        expect { subject }.to change { Board.count }.by(1)
+                          .and change { Board.from("boards_archive").count }.by(-1)
+                          .and change { Card.count }.by(1)
+                          .and change { Card.from("cards_archive").count }.by(-1)
+                          .and change { Tag.count }.by(1)
+                          .and change { Tag.from("tags_archive").count }.by(-1)
+      end
+    end
+  end
 end

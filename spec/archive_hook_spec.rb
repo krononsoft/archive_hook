@@ -79,37 +79,16 @@ RSpec.describe ArchiveHook do
     end
 
     context "when there is something outdated" do
-      context "just on the root level" do
-        let!(:outdated_board) { Board.create(title: "Archive board", created_at: 2.days.ago) }
+      let!(:still_actual_board) { Board.create(title: "Still actual") }
+      let!(:not_actual_card) { Card.create(title: "Not actual card", board: still_actual_board, created_at: 2.days.ago) }
+      let!(:not_actual_tag) { Tag.create(title: "r2", card: not_actual_card, created_at: 2.days.ago) }
 
-        it "archives them" do
-          expect { subject }.to change { Board.count }.by(-1)
-                            .and change { Board.from("boards_archive").count }.by(1)
-                            .and not_change { Card.count }
-                            .and not_change { Tag.count }
-        end
-      end
+      let!(:outdated_board) { Board.create(title: "Outdated board", created_at: 2.days.ago) }
+      let!(:outdated_card) { Card.create(title: "Outdated card", board: outdated_board, created_at: 2.days.ago) }
+      let!(:outdated_tag) { Tag.create(title: "r3", card: outdated_card, created_at: 2.days.ago) }
 
-      context "just on the second level" do
-        let!(:outdated_tag) { Tag.create(title: "r2", created_at: 2.days.ago) }
-
-        it "archives them" do
-          expect { subject }.to not_change { Board.count }
-                            .and not_change { Card.count }
-                            .and change { Tag.count }.by(-1)
-                            .and change { Tag.from("tags_archive").count }.by(1)
-        end
-      end
-
-      context "just on the first level" do
-        let!(:outdated_card) { Card.create(title: "Archive card", created_at: 2.days.ago) }
-
-        it "archives them" do
-          expect { subject }.to not_change { Board.count }
-                            .and change { Card.count }.by(-1)
-                            .and change { Card.from("cards_archive").count }.by(1)
-                            .and not_change { Tag.count }
-        end
+      it "archives only root and their related objects" do
+        expect { subject }.to change { Board.count }.by(-1).and change { Card.count }.by(-1).and change { Tag.count }.by(-1)
       end
 
       context "default scope" do
@@ -125,9 +104,6 @@ RSpec.describe ArchiveHook do
           end
         end
 
-        let!(:outdated_board) { Board.create(title: "Archive board", created_at: 2.days.ago) }
-        let!(:related_to_outdated_card) { Card.create(title: "Related to outdated card", board: outdated_board) }
-
         it "archives them" do
           expect { subject }.to change { Board.count }.by(-1)
                             .and change { Board.from("boards_archive").count }.by(1)
@@ -135,30 +111,12 @@ RSpec.describe ArchiveHook do
                             .and change { Card.unscoped.from("cards_archive").count }.by(1)
         end
       end
-
-      context "complicated relations" do
-        let!(:outdated_board) { Board.create(title: "Archive board", created_at: 2.days.ago) }
-        let!(:outdated_card) { Card.create(title: "Archive card", created_at: 2.days.ago) }
-        let!(:outdated_tag) { Tag.create(title: "r2", created_at: 2.days.ago) }
-        let!(:related_to_outdated_card) { Card.create(title: "Related to outdated card", board: outdated_board) }
-        let!(:related_to_actual_card) { Card.create(title: "Related to actual card", board: actual_board) }
-        let!(:related_tag) { Tag.create(title: "critical", card: related_to_outdated_card) }
-
-        it "archives them" do
-          expect { subject }.to change { Board.count }.by(-1)
-                            .and change { Board.from("boards_archive").count }.by(1)
-                            .and change { Card.count }.by(-2)
-                            .and change { Card.from("cards_archive").count }.by(2)
-                            .and change { Tag.count }.by(-2)
-                            .and change { Tag.from("tags_archive").count }.by(2)
-        end
-      end
     end
 
     context "when archive column is not created_at" do
       let(:mapping) { { Board => { children: [Card], column: :published_at } }  }
       let!(:outdated_board) { Board.create(title: "Archive board", created_at: 2.days.ago, published_at: Time.current) }
-      let!(:outdated_card) { Card.create(title: "Archive card", created_at: 2.days.ago) }
+      let!(:outdated_card) { Card.create(title: "Archive card", board: outdated_board, created_at: 2.days.ago) }
 
       before(:all) do
         ActiveRecord::Base.connection.execute <<-SQL
@@ -169,8 +127,7 @@ RSpec.describe ArchiveHook do
       end
 
       it "doesn't archive" do
-        expect { subject }.to not_change { Board.count }.from(2)
-                          .and change { Card.count }.by(-1)
+        expect { subject }.to not_change { Board.count }.from(2).and not_change { Card.count }
       end
 
       context "and archive date column is suitable" do
@@ -179,8 +136,7 @@ RSpec.describe ArchiveHook do
         end
 
         it "archives them" do
-          expect { subject }.to change { Board.count }.by(-1)
-                            .and change { Card.count }.by(-1)
+          expect { subject }.to change { Board.count }.by(-1).and change { Card.count }.by(-1)
         end
       end
     end

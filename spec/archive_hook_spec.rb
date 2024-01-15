@@ -114,7 +114,7 @@ RSpec.describe ArchiveHook do
     end
 
     context "when archive column is not created_at" do
-      let(:mapping) { { Board => { children: [Card], column: :published_at } }  }
+      let(:mapping) { { Board => { children: [Card], column: :published_at } } }
       let!(:outdated_board) { Board.create(title: "Archive board", created_at: 2.days.ago, published_at: Time.current) }
       let!(:outdated_card) { Card.create(title: "Archive card", board: outdated_board, created_at: 2.days.ago) }
 
@@ -138,6 +138,17 @@ RSpec.describe ArchiveHook do
         it "archives them" do
           expect { subject }.to change { Board.count }.by(-1).and change { Card.count }.by(-1)
         end
+      end
+    end
+
+    context "when there are missing relations in the mapping" do
+      let(:mapping) { { Board => { children: [Card] } } }
+      let!(:outdated_board) { Board.create(title: "Outdated board", created_at: 2.days.ago) }
+      let!(:outdated_card) { Card.create(title: "Outdated card", board: outdated_board, created_at: 2.days.ago) }
+      let!(:outdated_tag) { Tag.create(title: "r1", card: outdated_card, created_at: 2.days.ago) }
+
+      it "doesn't archive" do
+        expect { subject }.to raise_error(ActiveRecord::ActiveRecordError).and not_change { Board.count }
       end
     end
   end

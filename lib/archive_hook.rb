@@ -1,31 +1,16 @@
 require "archive_hook/version"
 
 module ArchiveHook
-  class ExpireExtension
-    def initialize(dependencies:, archive_date:)
-      @processed = []
-      @dependencies = dependencies
-      @archive_date = archive_date
-    end
-
-    def call(model)
-      return model.none if @processed.include?(model)
-
-      @processed << model
-      column = @dependencies[model] && @dependencies[model][:column] || :created_at
-      model.where("#{column} < ?", @archive_date)
-    end
-  end
-
   class ScopeArchiver
-    def initialize(dependencies: {}, scope_extension:)
+    def initialize(dependencies: {})
       @dependencies = dependencies
-      @scope_extension = scope_extension
     end
 
     def call(scope)
       parent = scope.model
-      parent_id_groups = scope.or(@scope_extension.call(parent)).in_batches.map { |relation| relation.pluck(:id) }
+      parent_id_groups = scope.in_batches.map { |relation| relation.pluck(:id) }
+      return if parent_id_groups.empty?
+
       archive_children(parent, parent_id_groups)
       parent_id_groups.each do |parent_ids|
         archive_by_scope(parent.unscoped.where(id: parent_ids))
@@ -38,19 +23,17 @@ module ArchiveHook
       return unless @dependencies[parent] && @dependencies[parent][:children].present?
 
       @dependencies[parent][:children].each do |child|
-        if parent_id_groups.present?
-          parent_id_groups.each do |parent_ids|
-            call(child.unscoped.where(parent.to_s.foreign_key => parent_ids))
-          end
-        else
-          call(child.none)
+        parent_id_groups.each do |parent_ids|
+          call(child.unscoped.where(parent.to_s.foreign_key => parent_ids))
         end
       end
     end
 
     def archive_by_scope(scope)
-      ActiveRecord::Base.connection.execute(Arel.sql(archive_records_sql(scope)))
-      scope.delete_all
+      ActiveRecord::Base.transaction do
+        ActiveRecord::Base.connection.execute(Arel.sql(archive_records_sql(scope)))
+        scope.delete_all
+      end
     end
 
     def archive_records_sql(scope)
@@ -96,11 +79,13 @@ module ArchiveHook
 
     def restore_by_ids(model, ids)
       table_name = model.table_name
-      ActiveRecord::Base.connection.execute(Arel.sql(restore_records_sql(model, ids)))
-      ActiveRecord::Base.connection.execute(Arel.sql <<-SQL
-        DELETE FROM #{table_name}_archive WHERE id IN (#{ids.join(', ')})
-      SQL
-      )
+      ActiveRecord::Base.transaction do
+        ActiveRecord::Base.connection.execute(Arel.sql(restore_records_sql(model, ids)))
+        ActiveRecord::Base.connection.execute(Arel.sql <<-SQL
+          DELETE FROM #{table_name}_archive WHERE id IN (#{ids.join(', ')})
+        SQL
+        )
+      end
     end
 
     def restore_records_sql(model, ids)
@@ -115,12 +100,13 @@ module ArchiveHook
 
   class << self
     def archive(root, archive_date, dependencies)
-      scope_extension = ExpireExtension.new(dependencies: dependencies, archive_date: archive_date)
-      ScopeArchiver.new(dependencies: dependencies, scope_extension: scope_extension).call(root.none)
+      column = dependencies[root] && dependencies[root][:column] || :created_at
+      base_scope = root.where("#{column} < ?", archive_date)
+      ScopeArchiver.new(dependencies: dependencies).call(base_scope)
     end
 
     def archive_scope(scope, dependencies = {})
-      ScopeArchiver.new(dependencies: dependencies, scope_extension: ->(model) { model.none }).call(scope)
+      ScopeArchiver.new(dependencies: dependencies).call(scope)
     end
 
     def restore_scope(scope, dependencies = {})
